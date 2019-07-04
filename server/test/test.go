@@ -12,7 +12,7 @@ import (
 func TestServerConfig() {
 	var postTcpArr []int
 	var postUdpArr []int
-	file.GetCsvDb().Tasks.Range(func(key, value interface{}) bool {
+	file.GetDb().JsonDb.Tasks.Range(func(key, value interface{}) bool {
 		v := value.(*file.Tunnel)
 		if v.Mode == "udp" {
 			isInArr(&postUdpArr, v.Port, v.Remark, "udp")
@@ -51,10 +51,10 @@ func TestServerConfig() {
 			if port, err := strconv.Atoi(p); err != nil {
 				log.Fatalln("get https port error", err)
 			} else {
-				if !common.FileExists(filepath.Join(beego.AppPath, beego.AppConfig.String("pemPath"))) {
+				if !common.FileExists(filepath.Join(common.GetRunPath(), beego.AppConfig.String("pemPath"))) {
 					log.Fatalf("ssl certFile %s is not exist", beego.AppConfig.String("pemPath"))
 				}
-				if !common.FileExists(filepath.Join(beego.AppPath, beego.AppConfig.String("ketPath"))) {
+				if !common.FileExists(filepath.Join(common.GetRunPath(), beego.AppConfig.String("ketPath"))) {
 					log.Fatalf("ssl keyFile %s is not exist", beego.AppConfig.String("pemPath"))
 				}
 				isInArr(&postTcpArr, port, "http port", "tcp")

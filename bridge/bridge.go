@@ -90,14 +90,14 @@ func (s *Bridge) GetHealthFromClient(id int, c *conn.Conn) {
 		if info, status, err := c.GetHealthInfo(); err != nil {
 			break
 		} else if !status { //the status is true , return target to the targetArr
-			file.GetCsvDb().Tasks.Range(func(key, value interface{}) bool {
+			file.GetDb().JsonDb.Tasks.Range(func(key, value interface{}) bool {
 				v := value.(*file.Tunnel)
-				if v.Client.Id == id && v.Mode == "tcp" && strings.Contains(v.Target, info) {
+				if v.Client.Id == id && v.Mode == "tcp" && strings.Contains(v.Target.TargetStr, info) {
 					v.Lock()
-					if v.TargetArr == nil || (len(v.TargetArr) == 0 && len(v.HealthRemoveArr) == 0) {
-						v.TargetArr = common.TrimArr(strings.Split(v.Target, "\n"))
+					if v.Target.TargetArr == nil || (len(v.Target.TargetArr) == 0 && len(v.HealthRemoveArr) == 0) {
+						v.Target.TargetArr = common.TrimArr(strings.Split(v.Target.TargetStr, "\n"))
 					}
-					v.TargetArr = common.RemoveArrVal(v.TargetArr, info)
+					v.Target.TargetArr = common.RemoveArrVal(v.Target.TargetArr, info)
 					if v.HealthRemoveArr == nil {
 						v.HealthRemoveArr = make([]string, 0)
 					}
@@ -106,14 +106,14 @@ func (s *Bridge) GetHealthFromClient(id int, c *conn.Conn) {
 				}
 				return true
 			})
-			file.GetCsvDb().Hosts.Range(func(key, value interface{}) bool {
+			file.GetDb().JsonDb.Hosts.Range(func(key, value interface{}) bool {
 				v := value.(*file.Host)
-				if v.Client.Id == id && strings.Contains(v.Target, info) {
+				if v.Client.Id == id && strings.Contains(v.Target.TargetStr, info) {
 					v.Lock()
-					if v.TargetArr == nil || (len(v.TargetArr) == 0 && len(v.HealthRemoveArr) == 0) {
-						v.TargetArr = common.TrimArr(strings.Split(v.Target, "\n"))
+					if v.Target.TargetArr == nil || (len(v.Target.TargetArr) == 0 && len(v.HealthRemoveArr) == 0) {
+						v.Target.TargetArr = common.TrimArr(strings.Split(v.Target.TargetStr, "\n"))
 					}
-					v.TargetArr = common.RemoveArrVal(v.TargetArr, info)
+					v.Target.TargetArr = common.RemoveArrVal(v.Target.TargetArr, info)
 					if v.HealthRemoveArr == nil {
 						v.HealthRemoveArr = make([]string, 0)
 					}
@@ -123,22 +123,22 @@ func (s *Bridge) GetHealthFromClient(id int, c *conn.Conn) {
 				return true
 			})
 		} else { //the status is false,remove target from the targetArr
-			file.GetCsvDb().Tasks.Range(func(key, value interface{}) bool {
+			file.GetDb().JsonDb.Tasks.Range(func(key, value interface{}) bool {
 				v := value.(*file.Tunnel)
-				if v.Client.Id == id && v.Mode == "tcp" && common.IsArrContains(v.HealthRemoveArr, info) && !common.IsArrContains(v.TargetArr, info) {
+				if v.Client.Id == id && v.Mode == "tcp" && common.IsArrContains(v.HealthRemoveArr, info) && !common.IsArrContains(v.Target.TargetArr, info) {
 					v.Lock()
-					v.TargetArr = append(v.TargetArr, info)
+					v.Target.TargetArr = append(v.Target.TargetArr, info)
 					v.HealthRemoveArr = common.RemoveArrVal(v.HealthRemoveArr, info)
 					v.Unlock()
 				}
 				return true
 			})
 
-			file.GetCsvDb().Hosts.Range(func(key, value interface{}) bool {
+			file.GetDb().JsonDb.Hosts.Range(func(key, value interface{}) bool {
 				v := value.(*file.Host)
-				if v.Client.Id == id && common.IsArrContains(v.HealthRemoveArr, info) && !common.IsArrContains(v.TargetArr, info) {
+				if v.Client.Id == id && common.IsArrContains(v.HealthRemoveArr, info) && !common.IsArrContains(v.Target.TargetArr, info) {
 					v.Lock()
-					v.TargetArr = append(v.TargetArr, info)
+					v.Target.TargetArr = append(v.Target.TargetArr, info)
 					v.HealthRemoveArr = common.RemoveArrVal(v.HealthRemoveArr, info)
 					v.Unlock()
 				}
@@ -152,7 +152,6 @@ func (s *Bridge) GetHealthFromClient(id int, c *conn.Conn) {
 //验证失败，返回错误验证flag，并且关闭连接
 func (s *Bridge) verifyError(c *conn.Conn) {
 	c.Write([]byte(common.VERIFY_EER))
-	c.Conn.Close()
 }
 
 func (s *Bridge) verifySuccess(c *conn.Conn) {
@@ -162,7 +161,7 @@ func (s *Bridge) verifySuccess(c *conn.Conn) {
 func (s *Bridge) cliProcess(c *conn.Conn) {
 	//read test flag
 	if _, err := c.GetShortContent(3); err != nil {
-		logs.Info("The client %s connect error", c.Conn.RemoteAddr())
+		logs.Info("The client %s connect error", c.Conn.RemoteAddr(), err.Error())
 		return
 	}
 	//version check
@@ -173,7 +172,7 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 	}
 	//write server version to client
 	c.Write([]byte(crypt.Md5(version.GetVersion())))
-	c.SetReadDeadline(5, s.tunnelType)
+	c.SetReadDeadlineBySecond(5)
 	var buf []byte
 	var err error
 	//get vKey from client
@@ -182,7 +181,7 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 		return
 	}
 	//verify
-	id, err := file.GetCsvDb().GetIdByVerifyKey(string(buf), c.Conn.RemoteAddr().String())
+	id, err := file.GetDb().GetIdByVerifyKey(string(buf), c.Conn.RemoteAddr().String())
 	if err != nil {
 		logs.Info("Current client connection validation error, close this client:", c.Conn.RemoteAddr())
 		s.verifyError(c)
@@ -200,20 +199,28 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 
 func (s *Bridge) DelClient(id int) {
 	if v, ok := s.Client.Load(id); ok {
-		if c, err := file.GetCsvDb().GetClient(id); err == nil && c.NoStore {
-			s.CloseClient <- c.Id
-		}
 		if v.(*Client).signal != nil {
 			v.(*Client).signal.Close()
 		}
 		s.Client.Delete(id)
+		if file.GetDb().IsPubClient(id) {
+			return
+		}
+		if c, err := file.GetDb().GetClient(id); err == nil {
+			s.CloseClient <- c.Id
+		}
 	}
 }
 
 //use different
 func (s *Bridge) typeDeal(typeVal string, c *conn.Conn, id int) {
+	isPub := file.GetDb().IsPubClient(id)
 	switch typeVal {
 	case common.WORK_MAIN:
+		if isPub {
+			c.Close()
+			return
+		}
 		//the vKey connect by another ,close the client of before
 		if v, ok := s.Client.LoadOrStore(id, NewClient(nil, nil, c)); ok {
 			if v.(*Client).signal != nil {
@@ -229,16 +236,8 @@ func (s *Bridge) typeDeal(typeVal string, c *conn.Conn, id int) {
 			v.(*Client).tunnel = muxConn
 		}
 	case common.WORK_CONFIG:
-		var isPub bool
-		client, err := file.GetCsvDb().GetClient(id)
-		if err == nil {
-			if client.VerifyKey == beego.AppConfig.String("public_vkey") {
-				isPub = true
-			} else {
-				isPub = false
-			}
-		}
-		if !isPub && !client.ConfigConnAllow {
+		client, err := file.GetDb().GetClient(id)
+		if err != nil || (!isPub && !client.ConfigConnAllow) {
 			c.Close()
 			return
 		}
@@ -249,6 +248,8 @@ func (s *Bridge) typeDeal(typeVal string, c *conn.Conn, id int) {
 	case common.WORK_SECRET:
 		if b, err := c.GetShortContent(32); err == nil {
 			s.SecretChan <- conn.NewSecret(string(b), c)
+		} else {
+			logs.Error("secret error, failed to match the key successfully")
 		}
 	case common.WORK_FILE:
 		muxConn := mux.NewMux(c.Conn, s.tunnelType)
@@ -258,9 +259,9 @@ func (s *Bridge) typeDeal(typeVal string, c *conn.Conn, id int) {
 	case common.WORK_P2P:
 		//read md5 secret
 		if b, err := c.GetShortContent(32); err != nil {
-			return
-		} else if t := file.GetCsvDb().GetTaskByMd5Password(string(b)); t == nil {
-			return
+			logs.Error("p2p error,", err.Error())
+		} else if t := file.GetDb().GetTaskByMd5Password(string(b)); t == nil {
+			logs.Error("p2p error, failed to match the key successfully")
 		} else {
 			if v, ok := s.Client.Load(t.Client.Id); !ok {
 				return
@@ -291,11 +292,16 @@ func (s *Bridge) register(c *conn.Conn) {
 	}
 }
 
-func (s *Bridge) SendLinkInfo(clientId int, link *conn.Link, linkAddr string, t *file.Tunnel) (target net.Conn, err error) {
+func (s *Bridge) SendLinkInfo(clientId int, link *conn.Link, t *file.Tunnel) (target net.Conn, err error) {
+	//if the proxy type is local
+	if link.LocalProxy {
+		target, err = net.Dial(link.ConnType, link.Host)
+		return
+	}
 	if v, ok := s.Client.Load(clientId); ok {
 		//If ip is restricted to do ip verification
 		if s.ipVerify {
-			ip := common.GetIpByAddr(linkAddr)
+			ip := common.GetIpByAddr(link.RemoteAddr)
 			if v, ok := s.Register.Load(ip); !ok {
 				return nil, errors.New(fmt.Sprintf("The ip %s is not in the validation list", ip))
 			} else {
@@ -318,10 +324,12 @@ func (s *Bridge) SendLinkInfo(clientId int, link *conn.Link, linkAddr string, t 
 			return
 		}
 		if t != nil && t.Mode == "file" {
+			//TODO if t.mode is file ,not use crypt or compress
+			link.Crypt = false
+			link.Compress = false
 			return
 		}
-
-		if _, err = conn.NewConn(target).SendLinkInfo(link); err != nil {
+		if _, err = conn.NewConn(target).SendInfo(link, ""); err != nil {
 			logs.Info("new connect error ,the target %s refuse to connect", link.Host)
 			return
 		}
@@ -374,18 +382,18 @@ loop:
 				break loop
 			} else {
 				var str string
-				id, err := file.GetCsvDb().GetClientIdByVkey(string(b))
+				id, err := file.GetDb().GetClientIdByVkey(string(b))
 				if err != nil {
 					break loop
 				}
-				file.GetCsvDb().Hosts.Range(func(key, value interface{}) bool {
+				file.GetDb().JsonDb.Hosts.Range(func(key, value interface{}) bool {
 					v := value.(*file.Host)
 					if v.Client.Id == id {
 						str += v.Remark + common.CONN_DATA_SEQ
 					}
 					return true
 				})
-				file.GetCsvDb().Tasks.Range(func(key, value interface{}) bool {
+				file.GetDb().JsonDb.Tasks.Range(func(key, value interface{}) bool {
 					v := value.(*file.Tunnel)
 					if _, ok := s.runList[v.Id]; ok && v.Client.Id == id {
 						str += v.Remark + common.CONN_DATA_SEQ
@@ -402,7 +410,7 @@ loop:
 				c.WriteAddFail()
 				break loop
 			} else {
-				if err = file.GetCsvDb().NewClient(client); err != nil {
+				if err = file.GetDb().NewClient(client); err != nil {
 					fail = true
 					c.WriteAddFail()
 					break loop
@@ -423,12 +431,12 @@ loop:
 				h.Location = "/"
 			}
 			if !client.HasHost(h) {
-				if file.GetCsvDb().IsHostExist(h) {
+				if file.GetDb().IsHostExist(h) {
 					fail = true
 					c.WriteAddFail()
 					break loop
 				} else {
-					file.GetCsvDb().NewHost(h)
+					file.GetDb().NewHost(h)
 					c.WriteAddOk()
 				}
 			} else {
@@ -441,12 +449,12 @@ loop:
 				break loop
 			} else {
 				ports := common.GetPorts(t.Ports)
-				targets := common.GetPorts(t.Target)
+				targets := common.GetPorts(t.Target.TargetStr)
 				if len(ports) > 1 && (t.Mode == "tcp" || t.Mode == "udp") && (len(ports) != len(targets)) {
 					fail = true
 					c.WriteAddFail()
 					break loop
-				} else if t.Mode == "secret" {
+				} else if t.Mode == "secret" || t.Mode == "p2p" {
 					ports = append(ports, 0)
 				}
 				if len(ports) == 0 {
@@ -458,18 +466,19 @@ loop:
 					tl := new(file.Tunnel)
 					tl.Mode = t.Mode
 					tl.Port = ports[i]
+					tl.ServerIp = t.ServerIp
 					if len(ports) == 1 {
 						tl.Target = t.Target
 						tl.Remark = t.Remark
 					} else {
 						tl.Remark = t.Remark + "_" + strconv.Itoa(tl.Port)
 						if t.TargetAddr != "" {
-							tl.Target = t.TargetAddr + ":" + strconv.Itoa(targets[i])
+							tl.Target.TargetStr = t.TargetAddr + ":" + strconv.Itoa(targets[i])
 						} else {
-							tl.Target = strconv.Itoa(targets[i])
+							tl.Target.TargetStr = strconv.Itoa(targets[i])
 						}
 					}
-					tl.Id = int(file.GetCsvDb().GetTaskId())
+					tl.Id = int(file.GetDb().JsonDb.GetTaskId())
 					tl.Status = true
 					tl.Flow = new(file.Flow)
 					tl.NoStore = true
@@ -478,7 +487,7 @@ loop:
 					tl.LocalPath = t.LocalPath
 					tl.StripPre = t.StripPre
 					if !client.HasTunnel(tl) {
-						if err := file.GetCsvDb().NewTask(tl); err != nil {
+						if err := file.GetDb().NewTask(tl); err != nil {
 							logs.Notice("Add task error ", err.Error())
 							fail = true
 							c.WriteAddFail()
